@@ -4,10 +4,11 @@
 
 from collections import defaultdict
 import csv
+import re
 from datetime import datetime, time, date, timedelta
 import pypff
 import pandas as pd
-
+import git_stat as git
 
 # === LISTE DE DÉTECTION DES DOSSIERS outlook ===
 # (Outlook en français ou anglais)
@@ -17,10 +18,20 @@ SENT_FOLDERS = ["Sent Items", "Éléments envoyés", "Envoyés"]
 # -----------------------------
 # CONFIGURATION UTILISATEUR
 # -----------------------------
-OST_FILE: str = "/media/dlerat/Expansion/SSI-portable/Outlook/Damien.Lerat@supersonicimagine.com - damien.lerat@supersonicimagine.com.ost"  # Chemin vers fichier PST/OST
-CSV_FILE: str = "/media/dlerat/Expansion/SSI-portable/Outlook/calendrier.CSV"  # CSV exporté des réunions Outlook
-JIRA_CSV_FILE: str = "/media/dlerat/Expansion/SSI-portable/Outlook/jira.csv"  # export jira des issues dont je suis le créateur
+OST_FILE: str = (
+    "/media/dlerat/Expansion/SSI-portable/Outlook/Damien.Lerat@supersonicimagine.com - damien.lerat@supersonicimagine.com.ost"  # Chemin vers fichier PST/OST
+)
+CSV_FILE: str = (
+    "/media/dlerat/Expansion/SSI-portable/Outlook/calendrier.CSV"  # CSV exporté des réunions Outlook
+)
+JIRA_CSV_FILE: str = (
+    "/media/dlerat/Expansion/SSI-portable/Outlook/jira.csv"  # export jira des issues dont je suis le créateur
+)
 
+REPO_PATHS: list[str] = [
+    "/home/dlerat/git/debian-security-analyzer/",
+    "/home/dlerat/git/DicomNemaParsingTool/",
+]
 OUTPUT_FILE: str = "rapport_activite.xlsx"  # Chemin vers fichier Excel de sortie
 
 # === PÉRIODE D'ANALYSE ===
@@ -35,7 +46,9 @@ DUREE_CREATION_ISSUE_MINUTES: int = 30
 
 
 # =========================================================
-def extract_folder_messages(folder: pypff.folder, target_names: list[str] = None) -> list[pypff.message]:
+def extract_folder_messages(
+    folder: pypff.folder, target_names: list[str] = None
+) -> list[pypff.message]:
     """Récupère récursivement les messages selon le nom du dossier"""
     messages: list[pypff.message] = []
     name = (folder.name or "").lower()
@@ -119,11 +132,7 @@ def parse_meetings(csv_file: str) -> list[dict]:
                 start_dt = datetime.combine(start_date, start_time)
                 end_dt = datetime.combine(end_date, end_time)
                 tmp_meetings.append(
-                    {
-                        "start_time": start_dt,
-                        "end_time": end_dt,
-                        "subject": subject
-                    }
+                    {"start_time": start_dt, "end_time": end_dt, "subject": subject}
                 )
 
             except Exception as e:
@@ -206,31 +215,80 @@ def lire_fichier_csv_jira(chemin_fichier: str) -> list[dict]:
 
 
 # =========================================================
-def build_daily_report(in_emails, in_meetings, in_issues):
+def get_git_stats(repo_path: str) -> list[git.CommitInfo]:
+    """Récupère les statistiques Git"""
+    git_stats = git.GitCommitAnalyzer(repo_path)
+    stats = git_stats.get_statistiques()
+    commits = git_stats.get_commits_par_date(START_DATE, END_DATE)
+    return commits
+
+
+# =========================================================
+def get_all_commits(repo_paths: list[str]) -> list[dict]:
+    """Récupère tous les commits de tous les dépôts"""
+    all_commits = []
+    for repo_path in repo_paths:
+        commits = get_git_stats(repo_path)
+        for commit in commits:
+            all_commits.append({
+                "date": commit.date_heure,
+                "message": commit.message,
+                "author": commit.auteur,
+                "email": commit.email,
+                "sha1": commit.sha1,
+                "sha1_complet": commit.sha1_complet,
+                "timestamp": commit.timestamp,
+            })
+    return all_commits
+
+
+# =========================================================
+def build_daily_report(
+    in_emails: list[dict], in_meetings: list[dict],
+    in_issues: list[dict], in_commits: list[dict]
+) -> pd.DataFrame:
     """Fusionne les mails et réunions par jour."""
-    daily = defaultdict(lambda: {"emails": [], "meetings": [], "issues": []})
+    daily = defaultdict(lambda: {"emails": [], "meetings": [], "issues": [], "commits": []})
 
     for tmp_mail in in_emails:
         mail_date = tmp_mail["date Envoi"].date()
         if START_DATE <= tmp_mail["date Envoi"] <= END_DATE:
-            daily[mail_date]["emails"].append((
-                tmp_mail["date Redaction"].time(),
-                tmp_mail["date Envoi"].time(),
-                tmp_mail["subject"]),
+            daily[mail_date]["emails"].append(
+                (
+                    tmp_mail["date Redaction"].time(),
+                    tmp_mail["date Envoi"].time(),
+                    tmp_mail["subject"],
+                ),
             )
 
     for tmp_issue in in_issues:
         issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p")
         if START_DATE <= issue_dt <= END_DATE:
             issue_desc = tmp_issue["Issue key"] + " " + tmp_issue["Summary"]
-            daily[issue_dt.date()]["issues"].append(
-                (issue_dt.time(), issue_desc)
-            )
+            daily[issue_dt.date()]["issues"].append((issue_dt.time(), issue_desc))
 
     for meeting in in_meetings:
         meeting_date = meeting["start_time"].date()
         if START_DATE <= meeting["start_time"] <= END_DATE:
-            daily[meeting_date]["meetings"].append((meeting["start_time"].time(), meeting["end_time"].time(), meeting["subject"]))
+            daily[meeting_date]["meetings"].append(
+                (
+                    meeting["start_time"].time(),
+                    meeting["end_time"].time(),
+                    meeting["subject"],
+                )
+            )
+
+    for commit in in_commits:
+        commit_dt = datetime.strptime(commit["date"], "%Y-%m-%d %H:%M:%S")
+        commit_date = commit_dt.date()
+        if START_DATE <= commit_dt <= END_DATE:
+            daily[commit_date]["commits"].append(
+                (
+                    commit_dt.time(),
+                    commit_dt.time(),
+                    re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', '', str(commit["sha1"] + " " + commit["message"]))
+                )
+            )
 
     rows = []
     for day_date, info in sorted(daily.items()):
@@ -239,16 +297,24 @@ def build_daily_report(in_emails, in_meetings, in_issues):
 
         for start, end, subj in info["meetings"]:
             summary_lines.append(
-                f"Réunion {start.strftime('%H:%M')}-{end.strftime('%H:%M')}: {subj}"
+                f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}: Réunion {subj}"
+            )
+            all_times += [start, end]
+
+        for start, end, subj in info["commits"]:
+            summary_lines.append(
+                f"{end.strftime('%H:%M')}: commits {subj}"
             )
             all_times += [start, end]
 
         for start, end, subj in info["emails"]:
-            summary_lines.append(f"Mail {end.strftime('%H:%M')}: {subj}")
+            summary_lines.append(f"{end.strftime('%H:%M')}: Mail {subj}")
             all_times.append(end)
 
         for issue_creation_time, summary in info["issues"]:
-            summary_lines.append(f"issue {issue_creation_time.strftime('%H:%M')}: {summary}")
+            summary_lines.append(
+                f"{issue_creation_time.strftime('%H:%M')}: issue {summary}"
+            )
             all_times.append(issue_creation_time)
 
         if all_times:
@@ -263,7 +329,7 @@ def build_daily_report(in_emails, in_meetings, in_issues):
                 "Semaine": day_date.isocalendar()[1],
                 "Date": day_date.strftime("%Y-%m-%d"),
                 "Jour": day_date.strftime("%a"),
-                "Résumé": "\n".join(summary_lines),
+                "Résumé": "\n".join(sorted(summary_lines)),
                 "Début": start_day.strftime("%H:%M") if start_day else "",
                 "Fin": end_day.strftime("%H:%M") if end_day else "",
             }
@@ -278,18 +344,23 @@ def build_daily_report(in_emails, in_meetings, in_issues):
 if __name__ == "__main__":
     print("Lecture des mails envoyés...")
     emails = process_sent_items(OST_FILE)
-    print(f"{len(emails)} mails trouvés")
+    print(f"\t{len(emails)} mails trouvés")
 
     print("Lecture du calendrier CSV...")
     meetings = parse_meetings(CSV_FILE)
-    print(f"{len(meetings)} réunions trouvées")
+    print(f"\t{len(meetings)} réunions trouvées")
 
     print("Lecture des issues jira créées...")
     issues = lire_fichier_csv_jira(JIRA_CSV_FILE)
-    print(f"{len(issues)} issues trouvés")
+    print(f"\t{len(issues)} issues trouvés")
+
+    print("Lecture des repository git ...")
+    commits = get_all_commits(REPO_PATHS)
+    print(f"\t{len(commits)} commits trouvés")
+
 
     print("Génération du rapport...")
-    df = build_daily_report(emails, meetings, issues)
+    df = build_daily_report(emails, meetings, issues, commits)
 
     df.to_excel(OUTPUT_FILE, index=False)
     print(f"✅ Rapport généré : {OUTPUT_FILE}")
