@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Creer l'excel de mon activité"""
+"""Créer l'excel de mon activité quotidienne"""
 
-import pypff
+from collections import defaultdict
 import csv
 from datetime import datetime, time, date, timedelta
-
+import pypff
 import pandas as pd
-from collections import defaultdict
 
 
 # === LISTE DE DÉTECTION DES DOSSIERS outlook ===
@@ -18,27 +17,27 @@ SENT_FOLDERS = ["Sent Items", "Éléments envoyés", "Envoyés"]
 # -----------------------------
 # CONFIGURATION UTILISATEUR
 # -----------------------------
-OST_FILE = "/media/dlerat/Expansion/SSI-portable/Outlook/Damien.Lerat@supersonicimagine.com - damien.lerat@supersonicimagine.com.ost"  # Chemin vers fichier PST/OST
-CSV_FILE = "/media/dlerat/Expansion/SSI-portable/Outlook/calendrier.CSV"  # CSV exporté des réunions Outlook
-JIRA_CSV_FILE = "/media/dlerat/Expansion/SSI-portable/Outlook/jira.csv"  # export jira des issues dont je suis le créateur
+OST_FILE: str = "/media/dlerat/Expansion/SSI-portable/Outlook/Damien.Lerat@supersonicimagine.com - damien.lerat@supersonicimagine.com.ost"  # Chemin vers fichier PST/OST
+CSV_FILE: str = "/media/dlerat/Expansion/SSI-portable/Outlook/calendrier.CSV"  # CSV exporté des réunions Outlook
+JIRA_CSV_FILE: str = "/media/dlerat/Expansion/SSI-portable/Outlook/jira.csv"  # export jira des issues dont je suis le créateur
 
-OUTPUT_FILE = "rapport_activite.xlsx"
+OUTPUT_FILE: str = "rapport_activite.xlsx"  # Chemin vers fichier Excel de sortie
 
 # === PÉRIODE D'ANALYSE ===
-START_DATE = datetime(2022, 1, 1)
-END_DATE = datetime(2025, 12, 31)
+START_DATE: datetime = datetime(2022, 1, 1)
+END_DATE: datetime = datetime(2025, 12, 31)
 
 #
-HEURE_DEBUT_JOURNEE = time(9, 0)
-HEURE_FIN_JOURNEE = time(18, 30)
-DUREE_REDACTION_MAIL_MINUTES = 15
-DUREE_CREATION_ISSUE_MINUTES = 30
+HEURE_DEBUT_JOURNEE: time = time(9, 0)
+HEURE_FIN_JOURNEE: time = time(18, 30)
+DUREE_REDACTION_MAIL_MINUTES: int = 15
+DUREE_CREATION_ISSUE_MINUTES: int = 30
 
 
 # =========================================================
-def extract_folder_messages(folder, target_names=None):
+def extract_folder_messages(folder: pypff.folder, target_names: list[str] = None) -> list[pypff.message]:
     """Récupère récursivement les messages selon le nom du dossier"""
-    messages = []
+    messages: list[pypff.message] = []
     name = (folder.name or "").lower()
 
     # Si un filtre de dossier est appliqué (ex: Sent Items ou Calendar)
@@ -57,7 +56,7 @@ def extract_folder_messages(folder, target_names=None):
             if sent_time and START_DATE <= sent_time <= END_DATE:
                 messages.append(msg)
                 print(
-                    f"sender: {msg.sender_name} sent {sent_time} subject: {msg.subject}"
+                    f"Mail: sender: {msg.sender_name} sent {sent_time} subject: {msg.subject}"
                 )
 
         except Exception as e:
@@ -73,22 +72,21 @@ def extract_folder_messages(folder, target_names=None):
 
 
 # =========================================================
-def process_sent_items(pst_file):
+def process_sent_items(pst_file: str) -> list[dict]:
     """Extrait les mails envoyés"""
-    file = pypff.file()
+    file: pypff.file = pypff.file()  # pylint: disable=no-member
     file.open(pst_file)
 
-    root = file.get_root_folder()
+    root: pypff.folder = file.get_root_folder()
     print("[*] Recherche des mails envoyés...")
     sent_msgs = extract_folder_messages(root, target_names=SENT_FOLDERS)
     print(f"[+] {len(sent_msgs)} mails envoyés trouvés.")
     file.close()
 
-    data = []
+    data: list[dict] = []
     for msg in sent_msgs:
         try:
-            sent_time = msg.client_submit_time or msg.delivery_time
-            print(f"sent_time {sent_time}")
+            sent_time: datetime = msg.client_submit_time or msg.delivery_time
             data.append(
                 {
                     "type": "mail",
@@ -96,7 +94,7 @@ def process_sent_items(pst_file):
                     "sender": msg.sender_name or "",
                     "date Redaction": sent_time
                     - timedelta(minutes=DUREE_REDACTION_MAIL_MINUTES),
-                    "date": sent_time,
+                    "date Envoi": sent_time,
                 }
             )
         except Exception as e:
@@ -106,9 +104,9 @@ def process_sent_items(pst_file):
 
 
 # =========================================================
-def parse_meetings(csv_file):
+def parse_meetings(csv_file: str) -> list[dict]:
     """Lit le fichier CSV exporté d Outlook."""
-    meetings = []
+    tmp_meetings = []
     with open(csv_file, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -120,80 +118,21 @@ def parse_meetings(csv_file):
                 end_time = datetime.strptime(row["End Time"], "%I:%M:%S %p").time()
                 start_dt = datetime.combine(start_date, start_time)
                 end_dt = datetime.combine(end_date, end_time)
-                meetings.append((start_dt, end_dt, subject))
+                tmp_meetings.append(
+                    {
+                        "start_time": start_dt,
+                        "end_time": end_dt,
+                        "subject": subject
+                    }
+                )
+
             except Exception as e:
                 print(f"Erreur parsing ligne: {e}")
-    return meetings
+    return tmp_meetings
 
 
 # =========================================================
-def build_daily_report(in_emails, in_meetings, in_issues):
-    """Fusionne les mails et réunions par jour."""
-    daily = defaultdict(lambda: {"emails": [], "meetings": [], "issues": []})
-
-    for tmp_mail in in_emails:
-        mail_date = tmp_mail["date"].date()
-        if START_DATE <= tmp_mail["date"] <= END_DATE:
-            daily[mail_date]["emails"].append((
-                tmp_mail["date Redaction"].time(),
-                tmp_mail["date"].time(),
-                tmp_mail["subject"]),
-            )
-
-    for tmp_issue in in_issues:
-        issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p")
-        if START_DATE <= issue_dt <= END_DATE:
-            issueDesc = tmp_issue["Issue key"] + " " + tmp_issue["Summary"]
-            daily[issue_dt.date()]["issues"].append(
-                (issue_dt.time(), issueDesc)
-            )
-
-    for meeting_start_dt, meeting_end_dt, meeting_subject in in_meetings:
-        meeting_date = meeting_start_dt.date()
-        if START_DATE <= meeting_start_dt <= END_DATE:
-            daily[meeting_date]["meetings"].append((meeting_start_dt.time(), meeting_end_dt.time(), meeting_subject))
-
-    rows = []
-    for day_date, info in sorted(daily.items()):
-        all_times = []
-        summary_lines = []
-
-        for start, end, subj in info["meetings"]:
-            summary_lines.append(
-                f"Réunion {start.strftime('%H:%M')}-{end.strftime('%H:%M')}: {subj}"
-            )
-            all_times += [start, end]
-
-        for start, end, subj in info["emails"]:
-            summary_lines.append(f"Mail {end.strftime('%H:%M')}: {subj}")
-            all_times.append(end)
-
-        for myTime, summary in info["issues"]:
-            summary_lines.append(f"issue {myTime.strftime('%H:%M')}: {summary}")
-            all_times.append(myTime)
-
-        if all_times:
-            start_day = min(all_times)
-            end_day = max(all_times)
-        else:
-            start_day = end_day = None
-
-        rows.append(
-            {
-                "Année": day_date.year,
-                "Semaine": day_date.isocalendar()[1],
-                "Date": day_date.strftime("%Y-%m-%d"),
-                "Jour": day_date.strftime("%a"),
-                "Résumé": "\n".join(summary_lines),
-                "Début": start_day.strftime("%H:%M") if start_day else "",
-                "Fin": end_day.strftime("%H:%M") if end_day else "",
-            }
-        )
-
-    return pd.DataFrame(rows)
-
-
-def lire_fichier_csv_JIRA(chemin_fichier):
+def lire_fichier_csv_jira(chemin_fichier: str) -> list[dict]:
     """
     Lit un fichier CSV et retourne une liste de dictionnaires.
 
@@ -266,6 +205,73 @@ def lire_fichier_csv_JIRA(chemin_fichier):
         return []
 
 
+# =========================================================
+def build_daily_report(in_emails, in_meetings, in_issues):
+    """Fusionne les mails et réunions par jour."""
+    daily = defaultdict(lambda: {"emails": [], "meetings": [], "issues": []})
+
+    for tmp_mail in in_emails:
+        mail_date = tmp_mail["date Envoi"].date()
+        if START_DATE <= tmp_mail["date Envoi"] <= END_DATE:
+            daily[mail_date]["emails"].append((
+                tmp_mail["date Redaction"].time(),
+                tmp_mail["date Envoi"].time(),
+                tmp_mail["subject"]),
+            )
+
+    for tmp_issue in in_issues:
+        issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p")
+        if START_DATE <= issue_dt <= END_DATE:
+            issue_desc = tmp_issue["Issue key"] + " " + tmp_issue["Summary"]
+            daily[issue_dt.date()]["issues"].append(
+                (issue_dt.time(), issue_desc)
+            )
+
+    for meeting in in_meetings:
+        meeting_date = meeting["start_time"].date()
+        if START_DATE <= meeting["start_time"] <= END_DATE:
+            daily[meeting_date]["meetings"].append((meeting["start_time"].time(), meeting["end_time"].time(), meeting["subject"]))
+
+    rows = []
+    for day_date, info in sorted(daily.items()):
+        all_times = []
+        summary_lines: list[str] = []
+
+        for start, end, subj in info["meetings"]:
+            summary_lines.append(
+                f"Réunion {start.strftime('%H:%M')}-{end.strftime('%H:%M')}: {subj}"
+            )
+            all_times += [start, end]
+
+        for start, end, subj in info["emails"]:
+            summary_lines.append(f"Mail {end.strftime('%H:%M')}: {subj}")
+            all_times.append(end)
+
+        for issue_creation_time, summary in info["issues"]:
+            summary_lines.append(f"issue {issue_creation_time.strftime('%H:%M')}: {summary}")
+            all_times.append(issue_creation_time)
+
+        if all_times:
+            start_day = min(all_times)
+            end_day = max(all_times)
+        else:
+            start_day = end_day = None
+
+        rows.append(
+            {
+                "Année": day_date.year,
+                "Semaine": day_date.isocalendar()[1],
+                "Date": day_date.strftime("%Y-%m-%d"),
+                "Jour": day_date.strftime("%a"),
+                "Résumé": "\n".join(summary_lines),
+                "Début": start_day.strftime("%H:%M") if start_day else "",
+                "Fin": end_day.strftime("%H:%M") if end_day else "",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 # -----------------------------
 # EXÉCUTION
 # -----------------------------
@@ -279,7 +285,7 @@ if __name__ == "__main__":
     print(f"{len(meetings)} réunions trouvées")
 
     print("Lecture des issues jira créées...")
-    issues = lire_fichier_csv_JIRA(JIRA_CSV_FILE)
+    issues = lire_fichier_csv_jira(JIRA_CSV_FILE)
     print(f"{len(issues)} issues trouvés")
 
     print("Génération du rapport...")
