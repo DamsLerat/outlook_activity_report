@@ -3,12 +3,12 @@
 """Créer l'excel de mon activité quotidienne"""
 
 import locale
-import pytz
 from collections import defaultdict
 import csv
 import os
 import re
 from datetime import datetime, time, date, timedelta
+from zoneinfo import ZoneInfo
 import random
 
 import pypff
@@ -42,6 +42,7 @@ def extract_folder_messages(
         try:
             msg = folder.get_sub_message(i)
             sent_time = msg.client_submit_time or msg.delivery_time
+            sent_time = sent_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Paris"))
             if sent_time and constants.START_DATE <= sent_time <= constants.END_DATE:
                 messages.append(msg)
                 print(
@@ -75,7 +76,9 @@ def process_sent_items(pst_file: str) -> list[dict]:
     data: list[dict] = []
     for msg in sent_msgs:
         try:
+            # les heures des mails sont en utc il faut les convertirs en heure de paris
             sent_time: datetime = msg.client_submit_time or msg.delivery_time
+            sent_time = sent_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Paris"))
             data.append(
                 {
                     "type": "mail",
@@ -105,10 +108,14 @@ def parse_meetings(csv_file: str) -> list[dict]:
                 end_date = datetime.strptime(row["End Date"], "%m/%d/%Y").date()
                 start_time = datetime.strptime(row["Start Time"], "%I:%M:%S %p").time()
                 end_time = datetime.strptime(row["End Time"], "%I:%M:%S %p").time()
-                start_dt = datetime.combine(start_date, start_time)
-                end_dt = datetime.combine(end_date, end_time)
+                start_dt = datetime.combine(start_date, start_time).replace(tzinfo=ZoneInfo("Europe/Paris"))
+                end_dt = datetime.combine(end_date, end_time).replace(tzinfo=ZoneInfo("Europe/Paris"))
                 tmp_meetings.append(
-                    {"start_time": start_dt, "end_time": end_dt, "subject": subject}
+                    {
+                        "start_time": start_dt,
+                        "end_time": end_dt,
+                        "subject": subject
+                    }
                 )
 
             except Exception as e:
@@ -240,7 +247,7 @@ def build_daily_report(
             )
 
     for tmp_issue in in_issues:
-        issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p")
+        issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p").replace(tzinfo=ZoneInfo("Europe/Paris"))
         if constants.START_DATE <= issue_dt <= constants.END_DATE:
             issue_desc = tmp_issue["Issue key"] + " " + tmp_issue["Summary"]
             daily[issue_dt.date()]["issues"].append(
@@ -263,7 +270,7 @@ def build_daily_report(
             )
 
     for commit in in_commits:
-        commit_dt = datetime.strptime(commit["date"], "%Y-%m-%d %H:%M:%S")
+        commit_dt = datetime.strptime(commit["date"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("Europe/Paris"))
         commit_date = commit_dt.date()
         if constants.START_DATE <= commit_dt <= constants.END_DATE:
             daily[commit_date]["commits"].append(

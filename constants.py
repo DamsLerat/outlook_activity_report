@@ -1,6 +1,6 @@
 
 from datetime import datetime, time
-
+from zoneinfo import ZoneInfo
 
 # === LISTE DE DÉTECTION DES DOSSIERS outlook ===
 # (Outlook en français ou anglais)
@@ -30,8 +30,8 @@ REPO_PATHS: list[str] = [
 OUTPUT_FILE: str = "rapport_activite.xlsx"  # Chemin vers fichier Excel de sortie
 
 # === PÉRIODE D'ANALYSE ===
-START_DATE: datetime = datetime(2022, 1, 1)
-END_DATE: datetime = datetime(2025, 12, 31)
+START_DATE: datetime = datetime(2022, 1, 1, tzinfo=ZoneInfo("Europe/Paris"))
+END_DATE: datetime = datetime(2025, 12, 31, tzinfo=ZoneInfo("Europe/Paris"))
 
 #
 HEURE_DEBUT_JOURNEE: time = time(9, 0)
