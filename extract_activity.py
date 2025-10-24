@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """Créer l'excel de mon activité quotidienne"""
 
+import locale
+import pytz
 from collections import defaultdict
 import csv
 import os
@@ -13,6 +15,10 @@ import pypff
 import pandas as pd
 import git_stat as git
 import constants
+
+#locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")  # si a paris
+#paris_tz = pytz.timezone('Europe/Paris')
+os.environ['TZ'] = 'Europe/Paris'
 
 
 # =========================================================
@@ -227,7 +233,7 @@ def build_daily_report(
         if constants.START_DATE <= tmp_mail["date Envoi"] <= constants.END_DATE:
             daily[mail_date]["emails"].append(
                 (
-                    tmp_mail["date Redaction"].time(),
+                tmp_mail["date Redaction"].time(),
                     tmp_mail["date Envoi"].time(),
                     tmp_mail["subject"],
                 ),

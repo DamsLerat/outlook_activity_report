@@ -41,7 +41,13 @@ Install Required Debian packages: \
 
   ```shell
     sudo apt install  git python3-venv python3.11
+    sudo apt-get install locales
+    sudo dpkg-reconfigure locales
+
   ```
+
+Note: configurer les locales FR
+
 
 __Create__  or __Activate__ the virtual environment (In the repository root folder).\
 Note: setup_venv.sh also install required  packages dependencies using packages provided in *requirements.txt* \
