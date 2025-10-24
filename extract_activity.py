@@ -400,6 +400,8 @@ def build_daily_report(
                 "Début": start_day.strftime("%H:%M") if start_day else "",
                 "Fin": end_day.strftime("%H:%M") if end_day else "",
                 "Pause (minutes)": pause,
+                "Temps de travail": "",
+                "Temps de travail dans la semaine": "",
                 "commentaire": commentaire,
             }
         )
@@ -481,6 +483,8 @@ def completer_dates_manquantes(
                 "Début": "",
                 "Fin": "",
                 "Pause (minutes)": "",
+                "Temps de travail": "",
+                "Temps de travail dans la semaine": "",
                 "commentaire": "",
             }
             liste_complete.append(nouveau_dict)
