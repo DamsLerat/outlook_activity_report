@@ -16,9 +16,9 @@ import pandas as pd
 import git_stat as git
 import constants
 
-#locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")  # si a paris
-#paris_tz = pytz.timezone('Europe/Paris')
-os.environ['TZ'] = 'Europe/Paris'
+# locale.setlocale(locale.LC_TIME, "fr_FR.UTF-8")  # si a paris
+# paris_tz = pytz.timezone('Europe/Paris')
+os.environ["TZ"] = "Europe/Paris"
 
 
 # =========================================================
@@ -42,7 +42,9 @@ def extract_folder_messages(
         try:
             msg = folder.get_sub_message(i)
             sent_time = msg.client_submit_time or msg.delivery_time
-            sent_time = sent_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Paris"))
+            sent_time = sent_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+                ZoneInfo("Europe/Paris")
+            )
             if sent_time and constants.START_DATE <= sent_time <= constants.END_DATE:
                 messages.append(msg)
                 print(
@@ -78,7 +80,9 @@ def process_sent_items(pst_file: str) -> list[dict]:
         try:
             # les heures des mails sont en utc il faut les convertirs en heure de paris
             sent_time: datetime = msg.client_submit_time or msg.delivery_time
-            sent_time = sent_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Europe/Paris"))
+            sent_time = sent_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+                ZoneInfo("Europe/Paris")
+            )
             data.append(
                 {
                     "type": "mail",
@@ -108,14 +112,14 @@ def parse_meetings(csv_file: str) -> list[dict]:
                 end_date = datetime.strptime(row["End Date"], "%m/%d/%Y").date()
                 start_time = datetime.strptime(row["Start Time"], "%I:%M:%S %p").time()
                 end_time = datetime.strptime(row["End Time"], "%I:%M:%S %p").time()
-                start_dt = datetime.combine(start_date, start_time).replace(tzinfo=ZoneInfo("Europe/Paris"))
-                end_dt = datetime.combine(end_date, end_time).replace(tzinfo=ZoneInfo("Europe/Paris"))
+                start_dt = datetime.combine(start_date, start_time).replace(
+                    tzinfo=ZoneInfo("Europe/Paris")
+                )
+                end_dt = datetime.combine(end_date, end_time).replace(
+                    tzinfo=ZoneInfo("Europe/Paris")
+                )
                 tmp_meetings.append(
-                    {
-                        "start_time": start_dt,
-                        "end_time": end_dt,
-                        "subject": subject
-                    }
+                    {"start_time": start_dt, "end_time": end_dt, "subject": subject}
                 )
 
             except Exception as e:
@@ -213,48 +217,59 @@ def get_all_commits(repo_paths: list[str]) -> list[dict]:
     for repo_path in repo_paths:
         commits = get_git_stats(repo_path)
         for commit in commits:
-            all_commits.append({
-                "date": commit.date_heure,
-                "message": commit.message,
-                "author": commit.auteur,
-                "email": commit.email,
-                "sha1": commit.sha1,
-                "sha1_complet": commit.sha1_complet,
-                "timestamp": commit.timestamp,
-                "repository": os.path.basename(repo_path),
-            })
+            all_commits.append(
+                {
+                    "date": commit.date_heure,
+                    "message": commit.message,
+                    "author": commit.auteur,
+                    "email": commit.email,
+                    "sha1": commit.sha1,
+                    "sha1_complet": commit.sha1_complet,
+                    "timestamp": commit.timestamp,
+                    "repository": os.path.basename(repo_path),
+                }
+            )
 
     return all_commits
 
 
 # =========================================================
 def build_daily_report(
-    in_emails: list[dict], in_meetings: list[dict],
-    in_issues: list[dict], in_commits: list[dict]
+    in_emails: list[dict],
+    in_meetings: list[dict],
+    in_issues: list[dict],
+    in_commits: list[dict],
 ) -> pd.DataFrame:
     """Fusionne les mails et réunions par jour."""
-    daily = defaultdict(lambda: {"emails": [], "meetings": [], "issues": [], "commits": []})
+    daily = defaultdict(
+        lambda: {"emails": [], "meetings": [], "issues": [], "commits": []}
+    )
 
     for tmp_mail in in_emails:
         mail_date = tmp_mail["date Envoi"].date()
         if constants.START_DATE <= tmp_mail["date Envoi"] <= constants.END_DATE:
             daily[mail_date]["emails"].append(
                 (
-                tmp_mail["date Redaction"].time(),
+                    tmp_mail["date Redaction"].time(),
                     tmp_mail["date Envoi"].time(),
                     tmp_mail["subject"],
                 ),
             )
 
     for tmp_issue in in_issues:
-        issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p").replace(tzinfo=ZoneInfo("Europe/Paris"))
+        issue_dt = datetime.strptime(tmp_issue["Created"], "%d/%b/%y %I:%M %p").replace(
+            tzinfo=ZoneInfo("Europe/Paris")
+        )
         if constants.START_DATE <= issue_dt <= constants.END_DATE:
             issue_desc = tmp_issue["Issue key"] + " " + tmp_issue["Summary"]
             daily[issue_dt.date()]["issues"].append(
                 (
-                    (issue_dt - timedelta(minutes=constants.DUREE_CREATION_ISSUE_MINUTES)).time(),
+                    (
+                        issue_dt
+                        - timedelta(minutes=constants.DUREE_CREATION_ISSUE_MINUTES)
+                    ).time(),
                     issue_dt.time(),
-                    issue_desc
+                    issue_desc,
                 )
             )
 
@@ -270,14 +285,28 @@ def build_daily_report(
             )
 
     for commit in in_commits:
-        commit_dt = datetime.strptime(commit["date"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("Europe/Paris"))
+        commit_dt = datetime.strptime(commit["date"], "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=ZoneInfo("Europe/Paris")
+        )
         commit_date = commit_dt.date()
         if constants.START_DATE <= commit_dt <= constants.END_DATE:
             daily[commit_date]["commits"].append(
                 (
-                    (commit_dt - timedelta(minutes=constants.DUREE_COMMIT_MINUTES)).time(),
+                    (
+                        commit_dt - timedelta(minutes=constants.DUREE_COMMIT_MINUTES)
+                    ).time(),
                     commit_dt.time(),
-                    re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', '', str(commit["repository"] + " " + commit["sha1"] + " " + commit["message"]))
+                    re.sub(
+                        r"[\x00-\x08\x0B-\x0C\x0E-\x1F]",
+                        "",
+                        str(
+                            commit["repository"]
+                            + " "
+                            + commit["sha1"]
+                            + " "
+                            + commit["message"]
+                        ),
+                    ),
                 )
             )
 
@@ -294,9 +323,7 @@ def build_daily_report(
                 all_times += [start, end]
 
         for start, end, subj in info["commits"]:
-            summary_lines.append(
-                f"{end.strftime('%H:%M')}: commits {subj}"
-            )
+            summary_lines.append(f"{end.strftime('%H:%M')}: commits {subj}")
             all_times += [start, end]
 
         for start, end, subj in info["emails"]:
@@ -304,15 +331,17 @@ def build_daily_report(
             all_times += [start, end]
 
         for start, end, summary in info["issues"]:
-            summary_lines.append(
-                f"{end.strftime('%H:%M')}: issue {summary}"
-            )
+            summary_lines.append(f"{end.strftime('%H:%M')}: issue {summary}")
             all_times += [start, end]
 
         if all_times:
             all_times += [
-                generer_heure_aleatoire(constants.HEURE_DEBUT_JOURNEE, constants.HEURE__DELTA),
-                generer_heure_aleatoire(constants.HEURE_FIN_JOURNEE, constants.HEURE__DELTA)
+                generer_heure_aleatoire(
+                    constants.HEURE_DEBUT_JOURNEE, constants.HEURE__DELTA
+                ),
+                generer_heure_aleatoire(
+                    constants.HEURE_FIN_JOURNEE, constants.HEURE__DELTA
+                ),
             ]
 
             start_day = min(all_times)
@@ -332,7 +361,69 @@ def build_daily_report(
             }
         )
 
+    rows = completer_dates_manquantes(
+        constants.START_DATE,
+        constants.END_DATE,
+        rows
+    )
+
     return pd.DataFrame(rows)
+
+
+# =========================================================
+def completer_dates_manquantes(
+    date_debut: datetime, date_fin: datetime, liste_dict: list[dict]
+) -> list[dict]:
+    """
+    Complète la liste de dictionnaires avec toutes les dates manquantes entre date_debut et date_fin.
+
+    Args:
+        date_debut: Date de début de la période
+        date_fin: Date de fin de la période
+        liste_dict: Liste de dictionnaires contenant une clé "Date" au format "%Y-%m-%d"
+
+    Returns:
+        Liste complétée avec toutes les dates de la période
+    """
+    # Convertir les datetime en date pour la comparaison
+    debut_date = date_debut.date()
+    fin_date = date_fin.date()
+
+    # Créer un set des dates déjà présentes pour une recherche rapide
+    dates_existantes = set()
+    for item in liste_dict:
+        try:
+            date_obj = datetime.strptime(item["Date"], "%Y-%m-%d").date()
+            dates_existantes.add(date_obj)
+        except (KeyError, ValueError):
+            continue
+
+    # Créer la liste complète de toutes les dates de la période
+    liste_complete = liste_dict.copy()
+    date_courante = debut_date
+
+    while date_courante <= fin_date:
+        if date_courante not in dates_existantes:
+            # Créer un nouveau dictionnaire pour la date manquante
+            nouveau_dict = {
+                "Année": date_courante.year,
+                "Semaine": date_courante.isocalendar()[1],
+                "Date": date_courante.strftime("%Y-%m-%d"),
+                "Jour": date_courante.strftime("%a"),
+                "Résumé": "",
+                "Début": "",
+                "Fin": "",
+            }
+            liste_complete.append(nouveau_dict)
+
+        date_courante += timedelta(days=1)
+
+    # Trier la liste par date
+    liste_complete_triee = sorted(
+        liste_complete, key=lambda x: datetime.strptime(x["Date"], "%Y-%m-%d")
+    )
+
+    return liste_complete_triee
 
 
 # =========================================================
@@ -341,6 +432,7 @@ def generer_heure_aleatoire(heure_base: time, delta_minutes: int) -> time:
     base_datetime = datetime.combine(date.today(), heure_base)
     delta = random.randint(-delta_minutes, delta_minutes)
     return (base_datetime + timedelta(minutes=delta)).time()
+
 
 # -----------------------------
 # EXÉCUTION
@@ -361,7 +453,6 @@ if __name__ == "__main__":
     print("Lecture des repository git ...")
     commits = get_all_commits(constants.REPO_PATHS)
     print(f"\t{len(commits)} commits trouvés")
-
 
     print("Génération du rapport...")
     df = build_daily_report(emails, meetings, issues, commits)
