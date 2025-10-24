@@ -14,7 +14,7 @@ OST_FILE: str = (
     "/media/dlerat/Expansion/SSI-portable/Outlook/Damien.Lerat@supersonicimagine.com - damien.lerat@supersonicimagine.com.ost"  # Chemin vers fichier PST/OST
 )
 CSV_FILE: str = (
-    "/media/dlerat/Expansion/SSI-portable/Outlook/calendrier.CSV"  # CSV exporté des réunions Outlook
+    "/media/dlerat/Expansion/SSI-portable/Outlook/calendrier2.CSV"  # CSV exporté des réunions Outlook
 )
 JIRA_CSV_FILE: str = (
     "/media/dlerat/Expansion/SSI-portable/Outlook/jira.csv"  # export jira des issues dont je suis le créateur
@@ -43,3 +43,8 @@ TPS_PAUSE2_MINUTE: int = 120
 DUREE_REDACTION_MAIL_MINUTES: int = 15
 DUREE_CREATION_ISSUE_MINUTES: int = 30
 DUREE_COMMIT_MINUTES: int = 120
+
+SEUIL_MAIL = time(6, 00)
+SEUIL_MEETING = time(7, 45)
+SEUIL_ISSUE = time(6, 00)
+SEUIL_COMMIT = time(6, 00)

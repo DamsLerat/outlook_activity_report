@@ -10,6 +10,8 @@ import re
 from datetime import datetime, time, date, timedelta
 from zoneinfo import ZoneInfo
 import random
+import holidays
+
 
 import pypff
 import pandas as pd
@@ -241,6 +243,13 @@ def build_daily_report(
     in_commits: list[dict],
 ) -> pd.DataFrame:
     """Fusionne les mails et réunions par jour."""
+
+    # Jours fériés en France de 2022 à 2025
+    feries = holidays.France(years=range(2022, 2026))
+
+    # Conversion en set de dates (objets datetime.date)
+    jours_feries = set(feries.keys())
+
     daily = defaultdict(
         lambda: {"emails": [], "meetings": [], "issues": [], "commits": []}
     )
@@ -314,40 +323,71 @@ def build_daily_report(
     for day_date, info in sorted(daily.items()):
         all_times = []
         summary_lines: list[str] = []
+        to_review: bool = False
 
         for start, end, subj in info["meetings"]:
             summary_lines.append(
                 f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}: Réunion {subj}"
             )
             if start != end:  # exclure les meetings qui dure la journée entiere
-                all_times += [start, end]
+                if end > constants.SEUIL_MEETING:
+                    all_times += [start, end]
+                elif end == time(00, 00):
+                    to_review = True
+                    all_times += [start, time(23, 59)]
+                else:
+                    to_review = True
 
         for start, end, subj in info["commits"]:
             summary_lines.append(f"{end.strftime('%H:%M')}: commits {subj}")
-            all_times += [start, end]
+            if end > constants.SEUIL_COMMIT:
+                all_times += [start, end]
+            else: 
+                to_review = True
 
         for start, end, subj in info["emails"]:
             summary_lines.append(f"{end.strftime('%H:%M')}: Mail {subj}")
-            all_times += [start, end]
-
+            if end > constants.SEUIL_MAIL:
+                all_times += [start, end]
+            else: 
+                to_review = True
+                
         for start, end, summary in info["issues"]:
             summary_lines.append(f"{end.strftime('%H:%M')}: issue {summary}")
-            all_times += [start, end]
+            if end > constants.SEUIL_ISSUE:
+                all_times += [start, end]
+            else: 
+                to_review = True
 
+        day_string = day_date.strftime("%a")
+        pause: int = 0
         if all_times:
-            all_times += [
-                generer_heure_aleatoire(
-                    constants.HEURE_DEBUT_JOURNEE, constants.HEURE__DELTA
-                ),
-                generer_heure_aleatoire(
-                    constants.HEURE_FIN_JOURNEE, constants.HEURE__DELTA
-                ),
-            ]
+            if day_string != "Sat" and day_string != "Sun":
+                all_times += [
+                    generer_heure_aleatoire(
+                        constants.HEURE_DEBUT_JOURNEE, constants.HEURE__DELTA
+                    ),
+                    generer_heure_aleatoire(
+                        constants.HEURE_FIN_JOURNEE, constants.HEURE__DELTA
+                    ),
+                ]
 
             start_day = min(all_times)
             end_day = max(all_times)
+            pause = calcul_temp_pause_minutes(start_day, end_day)
         else:
             start_day = end_day = None
+
+        type_jour: str = ""
+        if day_date in jours_feries:
+            type_jour = "JF"
+
+        if day_string == "Sat" or day_string == "Sun":
+            type_jour = "WE"
+
+        commentaire = ""
+        if to_review:
+            commentaire = "A revoir"
 
         rows.append(
             {
@@ -355,19 +395,45 @@ def build_daily_report(
                 "Semaine": day_date.isocalendar()[1],
                 "Date": day_date.strftime("%Y-%m-%d"),
                 "Jour": day_date.strftime("%a"),
+                "type journée": type_jour,
                 "Résumé": "\n".join(sorted(summary_lines)),
                 "Début": start_day.strftime("%H:%M") if start_day else "",
                 "Fin": end_day.strftime("%H:%M") if end_day else "",
+                "Pause (minutes)": pause,
+                "commentaire": commentaire,
             }
         )
 
-    rows = completer_dates_manquantes(
-        constants.START_DATE,
-        constants.END_DATE,
-        rows
-    )
+    rows = completer_dates_manquantes(constants.START_DATE, constants.END_DATE, rows)
 
     return pd.DataFrame(rows)
+
+
+# =========================================================
+def calcul_temp_pause_minutes(heure_debut: time, heure_fin: time) -> int:
+    """
+    Calcule la durée en minutes entre deux heures
+    Gère le cas où time2 est après minuit
+    """
+    # Convertir en datetime du même jour
+    date_ref = datetime.now().date()
+    datetime1 = datetime.combine(date_ref, heure_debut)
+    datetime2 = datetime.combine(date_ref, heure_fin)
+
+    # Si time2 est avant time1, on suppose que c'est le lendemain
+    if datetime2 < datetime1:
+        datetime2 = datetime.combine(date_ref.replace(day=date_ref.day + 1), heure_fin)
+
+    difference = datetime2 - datetime1
+    duree_heures = int(difference.total_seconds() / 3600)
+
+    if duree_heures < 4:
+        return 0
+    elif duree_heures < 9:
+        return constants.TPS_PAUSE_MINUTE
+    elif duree_heures < 15:
+        return constants.TPS_PAUSE2_MINUTE
+    return 0
 
 
 # =========================================================
@@ -409,10 +475,13 @@ def completer_dates_manquantes(
                 "Année": date_courante.year,
                 "Semaine": date_courante.isocalendar()[1],
                 "Date": date_courante.strftime("%Y-%m-%d"),
+                "type journée": "",
                 "Jour": date_courante.strftime("%a"),
                 "Résumé": "",
                 "Début": "",
                 "Fin": "",
+                "Pause (minutes)": "",
+                "commentaire": "",
             }
             liste_complete.append(nouveau_dict)
 
